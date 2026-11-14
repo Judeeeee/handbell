@@ -23,7 +23,8 @@ function setNote(i) {
   slider.value = String(state.current);
   view.showNote(NOTES[state.current]);
   [...labels.children].forEach((el, j) =>
-    el.classList.toggle("active", j === state.current));
+    el.classList.toggle("active", j === state.current),
+  );
 }
 
 function playCurrent() {
@@ -48,10 +49,12 @@ NOTES.forEach((n, i) => {
 slider.addEventListener("input", () => setNote(Number(slider.value)));
 
 // タッチ / クリックで演奏
-document.getElementById("bell-stage").addEventListener("pointerdown", async () => {
-  if (!state.enabled) await enable();
-  playCurrent();
-});
+document
+  .getElementById("bell-stage")
+  .addEventListener("pointerdown", async () => {
+    if (!state.enabled) await enable();
+    playCurrent();
+  });
 
 // PCフォールバック: スペースキー
 window.addEventListener("keydown", async (e) => {
@@ -66,12 +69,27 @@ window.addEventListener("keydown", async (e) => {
 
 // 初回ボタン: 音声の解放 + センサー許可を1タップに集約
 async function enable() {
+  // ★順番が重要: センサー許可 (requestPermission) を一番先に呼ぶ。
+  //   先に audio.unlock() を await すると Safari がユーザー操作扱いを外し、
+  //   許可ダイアログが出ないまま失敗することがある。
+  //   shake.start() の呼び出し自体は同期的 (await は結果待ちだけ後ろに回す)。
+  const shakePromise = shake.start();
   const okAudio = await audio.unlock();
-  const okShake = await shake.start().catch(() => false);
+  const okShake = await shakePromise.catch(() => false);
   state.enabled = okAudio;
-  statusEl.textContent = okShake ? "センサー ON" : "タップで演奏";
+  if (okShake) {
+    statusEl.textContent = "センサー ON";
+  } else if (shake.lastResult === "denied") {
+    statusEl.textContent = "センサー許可が拒否されました";
+  } else if (shake.lastResult === "unsupported") {
+    statusEl.textContent = "このブラウザはセンサー非対応です";
+  } else if (shake.lastResult && shake.lastResult.startsWith("error:")) {
+    statusEl.textContent = `センサーエラー (${shake.lastResult.slice(6)})`;
+  } else {
+    statusEl.textContent = "タップで演奏";
+  }
   statusEl.classList.toggle("on", !!okShake);
-  enableBtn.hidden = okAudio;
+  enableBtn.hidden = okAudio && okShake;
   if (okAudio) playCurrent();
 }
 enableBtn.addEventListener("click", enable);
